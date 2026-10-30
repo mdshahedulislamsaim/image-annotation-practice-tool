@@ -13,6 +13,7 @@ A simple browser tool to practice image annotation. It runs fully in the browser
 ![Review results](screenshots/2-review.png)
 
 **COCO JSON export**
+
 ![COCO export](screenshots/3-export.png)
 
 Photo by Yan Krukov on [Pexels](https://www.pexels.com/photo/5792894/).
