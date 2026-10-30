@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Image Annotation Practice Tool</title>
+<style>
+  /* ---------- Design tokens (light by default, dark variants below) ---------- */
+  :root {
+    --bg: #f4f6f8;
+    --surface: #ffffff;
+    --surface-2: #eef1f4;
+    --ink: #1b2430;
+    --ink-soft: #5a6676;
+    --line: #d9dee5;
+    --accent: #0f766e;
+    --accent-ink: #ffffff;
+    --danger: #b42318;
+    --stage-bg: #e3e8ee;
+    --warn-bg: #fff4d6;
+    --warn-ink: #6b4a00;
+    --tag-ink: #ffffff;
+
+    /* One color per label, used for boxes, tags and list swatches */
+    --c-person: #d6452a;
+    --c-car: #2563eb;
+    --c-bicycle: #138a5b;
+    --c-dog: #b45f06;
+    --c-cat: #8b3fc4;
+
+    /* Review mode colors (box status) */
+    --s-good: #15803d;
+    --s-ok: #a16207;
+    --s-extra: #dc2626;
+    --s-wrong: #a21caf;
+    --s-missed: #2563eb;
+    --ref-line: #5a6676;
+
+    color-scheme: light;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12171d; --surface: #1b222b; --surface-2: #232c37;
+      --ink: #e8edf3; --ink-soft: #9aa7b6; --line: #303b48;
+      --accent: #2dd4bf; --accent-ink: #06201d; --danger: #ff8a7a;
+      --stage-bg: #0d1116; --warn-bg: #3a2f10; --warn-ink: #f3d98b;
+      --tag-ink: #0b1117;
+      --c-person: #ff7a5c; --c-car: #6ea0ff; --c-bicycle: #3fd69b; --c-dog: #f0a53c; --c-cat: #c78bf5;
+      --ref-line: #b6c2d0;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12171d; --surface: #1b222b; --surface-2: #232c37;
+    --ink: #e8edf3; --ink-soft: #9aa7b6; --line: #303b48;
+    --accent: #2dd4bf; --accent-ink: #06201d; --danger: #ff8a7a;
+    --stage-bg: #0d1116; --warn-bg: #3a2f10; --warn-ink: #f3d98b;
+    --tag-ink: #0b1117;
+    --c-person: #ff7a5c; --c-car: #6ea0ff; --c-bicycle: #3fd69b; --c-dog: #f0a53c; --c-cat: #c78bf5;
+    --ref-line: #b6c2d0;
+    color-scheme: dark;
+  }
+
+  /* ---------- Base ---------- */
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  .page { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
+
+  header.top { margin-bottom: 16px; }
+  header.top h1 { margin: 0 0 4px; font-size: 1.5rem; letter-spacing: -0.01em; }
+  header.top p { margin: 0; color: var(--ink-soft); max-width: 70ch; }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .panel + .panel { margin-top: 16px; }
+  .panel h2 { margin: 0 0 10px; font-size: 1rem; }
+
+  /* ---------- Controls ---------- */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .toolbar label, .inline-label { display: flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: 0.9rem; }
+  button, select {
+    font: inherit; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 12px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--ink-soft); }
+  button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible, .stage-overlay:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  input[type="file"] { display: none; }
+
+  .hint { color: var(--ink-soft); font-size: 0.88rem; margin: 0 0 10px; }
+  .status { min-height: 1.4em; font-size: 0.88rem; color: var(--ink-soft); margin: 8px 0 0; }
+  .status.error { color: var(--danger); }
+
+  /* ---------- Image stage ---------- */
+  .stage {
+    background: var(--stage-bg);
+    border-radius: 8px;
+    min-height: 320px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 10px;
+    overflow: hidden;
+  }
+  .stage.dragover { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  .empty { text-align: center; color: var(--ink-soft); max-width: 36ch; }
+  .empty strong { display: block; color: var(--ink); margin-bottom: 4px; }
+
+  /* The canvas shrinks to exactly the displayed image size, so the overlay always matches it */
+  .canvas { position: relative; display: none; max-width: 100%; line-height: 0; }
+  .canvas.show { display: block; }
+  .canvas img {
+    display: block;
+    max-width: 100%;
+    max-height: 70vh;
+    width: auto; height: auto;
+    user-select: none; -webkit-user-drag: none;
+  }
+  .stage-overlay {
+    position: absolute; inset: 0;
+    cursor: crosshair;
+    touch-action: none; /* lets touch screens draw without scrolling */
+  }
+
+  /* ---------- Bounding boxes (positioned in % so they scale with the image) ---------- */
+  .box {
+    position: absolute;
+    border: 2px solid var(--c);
+    background: color-mix(in srgb, var(--c) 14%, transparent);
+    cursor: move;
+  }
+  .box.selected { border-width: 3px; background: color-mix(in srgb, var(--c) 24%, transparent); }
+  .box.draft { border-style: dashed; pointer-events: none; }
+  .tag {
+    position: absolute; left: -2px; bottom: 100%;
+    background: var(--c); color: var(--tag-ink);
+    font: 600 11px/1 system-ui, sans-serif;
+    padding: 3px 6px; border-radius: 4px 4px 4px 0;
+    white-space: nowrap; pointer-events: none;
+  }
+  .top-edge > .tag { bottom: auto; top: 100%; border-radius: 0 4px 4px 4px; }
+  .handle {
+    position: absolute; width: 12px; height: 12px;
+    background: #fff; border: 2px solid var(--c); border-radius: 3px;
+    transform: translate(-50%, -50%);
+  }
+  .handle[data-h="nw"] { left: 0; top: 0; cursor: nwse-resize; }
+  .handle[data-h="n"]  { left: 50%; top: 0; cursor: ns-resize; }
+  .handle[data-h="ne"] { left: 100%; top: 0; cursor: nesw-resize; }
+  .handle[data-h="e"]  { left: 100%; top: 50%; cursor: ew-resize; }
+  .handle[data-h="se"] { left: 100%; top: 100%; cursor: nwse-resize; }
+  .handle[data-h="s"]  { left: 50%; top: 100%; cursor: ns-resize; }
+  .handle[data-h="sw"] { left: 0; top: 100%; cursor: nesw-resize; }
+  .handle[data-h="w"]  { left: 0; top: 50%; cursor: ew-resize; }
+
+  /* ---------- Review mode: box colors by result, and reference boxes ---------- */
+  .box[data-s] {
+    border-color: var(--s);
+    background: color-mix(in srgb, var(--s) 16%, transparent);
+  }
+  .box[data-s] > .tag { background: var(--s); color: #fff; }
+  .box[data-s="good"]  { --s: var(--s-good); }
+  .box[data-s="ok"]    { --s: var(--s-ok); }
+  .box[data-s="extra"] { --s: var(--s-extra); }
+  .box[data-s="wrong"] { --s: var(--s-wrong); }
+  .box[data-s] .handle { border-color: var(--s); }
+
+  .ref-box {
+    position: absolute;
+    border: 2px dashed var(--ref-line);
+    pointer-events: none; /* reference boxes never block drawing */
+  }
+  .ref-box.missed {
+    border-width: 3px;
+    border-color: var(--s-missed);
+    background: color-mix(in srgb, var(--s-missed) 12%, transparent);
+  }
+  .ref-box.missed > .tag { background: var(--s-missed); color: #fff; }
+
+  /* ---------- Annotation list ---------- */
+  .ann-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 320px; overflow-y: auto; }
+  .ann-item {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+    border-left: 5px solid var(--c);
+    cursor: pointer;
+  }
+  .ann-item.selected { background: var(--surface-2); border-color: var(--c); }
+  .ann-item .num { font-weight: 700; color: var(--ink-soft); }
+  .ann-item select { padding: 4px 8px; }
+  .ann-item .meta { grid-column: 2 / 4; font-size: 0.82rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .ann-item button { padding: 4px 10px; }
+  .list-empty { color: var(--ink-soft); font-size: 0.9rem; }
+
+  /* ---------- Review panel ---------- */
+  .rv-block { padding: 10px 0; }
+  .rv-block + .rv-block { border-top: 1px solid var(--line); }
+  .rv-block h3 { margin: 0 0 6px; font-size: 0.92rem; }
+  .rv-block .btn-row { margin-bottom: 6px; }
+  .rv-msg { margin: 0; font-size: 0.86rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+  .rv-msg.error { color: var(--danger); }
+  .stats { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 8px 0 0; font-size: 0.9rem; }
+  .stats dt { color: var(--ink-soft); }
+  .stats dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  .legend { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; font-size: 0.84rem; color: var(--ink-soft); }
+  .legend i {
+    display: inline-block; width: 16px; height: 10px; margin-right: 6px; vertical-align: middle;
+    border: 2px solid var(--k);
+  }
+  .legend i.dash { border-style: dashed; }
+  .notice { margin: 10px 0 0; font-size: 0.84rem; color: var(--ink-soft); }
+
+  /* ---------- Checklist ---------- */
+  .check-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+  .check-list label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+  .check-list input { margin-top: 4px; accent-color: var(--accent); }
+  .progress { height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin-bottom: 8px; }
+  .progress > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+  .hints { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.88rem; }
+  .hints ul { margin: 4px 0 0; padding-left: 18px; }
+  .hints.ok { background: var(--surface-2); color: var(--ink-soft); }
+
+  /* ---------- Export ---------- */
+  .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: center; }
+  details summary { cursor: pointer; color: var(--ink-soft); font-size: 0.9rem; }
+  pre.json {
+    margin: 8px 0 0; padding: 10px; max-height: 260px; overflow: auto;
+    background: var(--surface-2); border-radius: 8px;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  /* ---------- Self-test ---------- */
+  .tests { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; font-size: 0.88rem; }
+  .tests .fail { color: var(--danger); font-weight: 600; }
+  .tests .result { font-weight: 700; margin-right: 6px; font-variant-numeric: tabular-nums; }
+  .disclaimer { margin-top: 16px; color: var(--ink-soft); font-size: 0.85rem; max-width: 80ch; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="top">
+    <h1>Image Annotation Practice Tool</h1>
+    <p>Upload an image, draw boxes around objects, and label them. Then use Review mode to compare your boxes with a reference file, or with your own first pass.</p>
+  </header>
+
+  <div class="layout">
+
+    <!-- ===================== Left: image + drawing area ===================== -->
+    <section class="panel" aria-label="Annotation workspace">
+      <div class="toolbar">
+        <button type="button" class="primary" id="uploadBtn">Upload image</button>
+        <input type="file" id="fileInput" accept="image/*">
+        <label>New box label
+          <select id="labelSelect" aria-label="Label for new boxes"></select>
+        </label>
+      </div>
+
+      <p class="hint">Drag on the image to draw a box. Click a box to select it, then drag it to move or drag a handle to resize. Press Delete to remove the selected box.</p>
+
+      <div class="stage" id="stage">
+        <div class="empty" id="emptyState">
+          <strong>No image yet</strong>
+          Click “Upload image” or drop an image file here.
+        </div>
+        <div class="canvas" id="canvas">
+          <img id="img" alt="Image to annotate" draggable="false">
+          <div class="stage-overlay" id="overlay" tabindex="0" aria-label="Drawing area. Drag to draw a bounding box."></div>
+        </div>
+      </div>
+      <p class="status" id="status" role="status"></p>
+    </section>
+
+    <!-- ===================== Right: list, review, checklist, export ===================== -->
+    <aside>
+      <section class="panel" aria-label="Annotations">
+        <h2>Annotations (<span id="count">0</span>)</h2>
+        <ul class="ann-list" id="annList"></ul>
+        <p class="list-empty" id="listEmpty">No boxes yet. Draw one on the image.</p>
+        <div class="btn-row" style="margin-top:10px">
+          <button type="button" class="danger" id="clearBtn" disabled>Clear all</button>
+        </div>
+      </section>
+
+      <section class="panel" aria-label="Review mode">
+        <h2>Review mode</h2>
+        <p class="hint">Annotate first. The reference stays hidden until you press Start review.</p>
+
+        <div class="rv-block">
+          <h3>Reference file (COCO JSON)</h3>
+          <div class="btn-row">
+            <button type="button" id="refBtn" disabled>Load COCO JSON</button>
+            <input type="file" id="refInput" accept=".json,application/json">
+          </div>
+          <p class="rv-msg" id="refMsg"></p>
+        </div>
+
+        <div class="rv-block">
+          <h3>Second pass (optional)</h3>
+          <div class="btn-row">
+            <button type="button" id="pass1Btn" disabled>Save as Pass 1 and start fresh</button>
+          </div>
+          <p class="rv-msg" id="pass1Msg"></p>
+        </div>
+
+        <div class="rv-block">
+          <h3>Compare</h3>
+          <div class="btn-row">
+            <label class="inline-label">Compare with
+              <select id="targetSelect" aria-label="What to compare with">
+                <option value="reference">Reference file</option>
+                <option value="pass1">My Pass 1</option>
+              </select>
+            </label>
+            <button type="button" class="primary" id="reviewBtn" disabled>Start review</button>
+          </div>
+          <label class="inline-label"><input type="checkbox" id="showRef" checked> Show matched reference boxes</label>
+          <div id="reviewResults"></div>
+        </div>
+
+        <p class="notice">The score compares your boxes with a reference file. It is practice, not a certified accuracy result.</p>
+      </section>
+
+      <section class="panel" aria-label="Quality checklist">
+        <h2>Quality checklist</h2>
+        <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+        <ul class="check-list" id="checkList"></ul>
+        <p class="hint" id="checkSummary" style="margin:0"></p>
+        <div class="hints" id="hints"></div>
+      </section>
+
+      <section class="panel" aria-label="Export">
+        <h2>Export</h2>
+        <div class="btn-row">
+          <label class="inline-label">Format
+            <select id="exportFormat" aria-label="Export format">
+              <option value="practice">Practice JSON</option>
+              <option value="coco">COCO JSON</option>
+            </select>
+          </label>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="primary" id="downloadBtn" disabled>Download</button>
+          <button type="button" id="copyBtn" disabled>Copy</button>
+        </div>
+        <p class="hint" id="exportStatus" style="margin:0 0 8px" role="status"></p>
+        <details>
+          <summary>Preview</summary>
+          <pre class="json" id="jsonPreview">{}</pre>
+        </details>
+      </section>
+    </aside>
+  </div>
+
+  <section class="panel" aria-label="Self-test" style="margin-top:16px">
+    <details id="selfTestBox">
+      <summary id="selfTestSummary">Self-test</summary>
+      <p class="hint" style="margin-top:8px">These checks run when the page loads. They test the scoring and export code against answers you can work out by hand.</p>
+      <ul class="tests" id="selfTestList"></ul>
+    </details>
+  </section>
+
+  <p class="disclaimer">This is an educational annotation practice tool, not a certified accuracy evaluation system. The checklist, hints and review scores help you study your own work; they do not measure real project accuracy.</p>
+</div>
+
+<script>
+/* =====================================================================
+   Image Annotation Practice Tool
+   - No backend, no API key. Everything runs in the browser.
+   - Box coordinates are stored in the image's ORIGINAL pixel size
+     (naturalWidth / naturalHeight). They are drawn using percentages,
+     so they stay aligned when the image is resized on screen.
+   - Review mode compares my boxes with a COCO reference file
+     (or with my own earlier "Pass 1") using IoU.
+   ===================================================================== */
+
+/* ---------- Settings ---------- */
+const LABELS = ["Person", "Car", "Bicycle", "Dog", "Cat"];
+
+/* Standard COCO category ids and super-categories for the five labels */
+const COCO_IDS   = { Person: 1, Bicycle: 2, Car: 3, Cat: 17, Dog: 18 };
+const COCO_SUPER = { Person: "person", Bicycle: "vehicle", Car: "vehicle", Cat: "animal", Dog: "animal" };
+
+/* IoU limits used in review */
+const IOU_MATCH = 0.5;   // below this, two boxes are not counted as a match
+const IOU_GOOD  = 0.75;  // at or above this, the match is "good"
+
+const CHECKLIST_ITEMS = [
+  "Every visible object I want to label has a box",
+  "Boxes fit tightly around each object (no big gaps)",
+  "No box cuts off part of its object",
+  "Every box has the correct label",
+  "Partly hidden objects are boxed the same way each time",
+  "No duplicate boxes on the same object",
+  "I did not box objects that are not in the label list"
+];
+
+/* ---------- App state ---------- */
+const state = {
+  image: null,         // { name, width, height } in original pixels
+  boxes: [],           // [{ id, label, x, y, w, h }] in original pixels
+  selectedId: null,    // id of the selected box
+  nextId: 1,           // counter for new box ids
+  checks: CHECKLIST_ITEMS.map(() => false),
+
+  reference: null,     // { boxes: [{label,x,y,w,h}] } loaded from a COCO file
+  refMessage: { text: "No reference file loaded.", error: false },
+  pass1: null,         // { boxes: [{label,x,y,w,h}] } saved first pass
+
+  review: {
+    active: false,       // true while review is on
+    target: "reference", // "reference" or "pass1"
+    showMatched: true,   // show matched reference boxes on the image
+    result: null,        // output of compareBoxes + summary
+    byBox: {}            // my box id -> { status, iou, ... }
+  }
+};
+
+/* Active mouse/touch action: { type: "draw"|"move"|"resize", ... } */
+let drag = null;
+let currentObjectUrl = null;
+
+/* ---------- Element shortcuts ---------- */
+const $ = (id) => document.getElementById(id);
+const els = {
+  fileInput: $("fileInput"), uploadBtn: $("uploadBtn"), labelSelect: $("labelSelect"),
+  stage: $("stage"), emptyState: $("emptyState"), canvas: $("canvas"), img: $("img"), overlay: $("overlay"),
+  status: $("status"), count: $("count"), annList: $("annList"), listEmpty: $("listEmpty"),
+  clearBtn: $("clearBtn"), checkList: $("checkList"), progressBar: $("progressBar"),
+  checkSummary: $("checkSummary"), hints: $("hints"),
+  refBtn: $("refBtn"), refInput: $("refInput"), refMsg: $("refMsg"),
+  pass1Btn: $("pass1Btn"), pass1Msg: $("pass1Msg"),
+  targetSelect: $("targetSelect"), reviewBtn: $("reviewBtn"), showRef: $("showRef"), reviewResults: $("reviewResults"),
+  exportFormat: $("exportFormat"), downloadBtn: $("downloadBtn"), copyBtn: $("copyBtn"),
+  exportStatus: $("exportStatus"), jsonPreview: $("jsonPreview"),
+  selfTestBox: $("selfTestBox"), selfTestSummary: $("selfTestSummary"), selfTestList: $("selfTestList")
+};
+
+/* ---------- Small helpers ---------- */
+function labelColor(label) { return `var(--c-${label.toLowerCase()})`; }
+function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
+function getBox(id) { return state.boxes.find((b) => b.id === id); }
+function round2(v) { return Math.round(v * 100) / 100; }
+function baseName(p) { return String(p || "").split(/[\\/]/).pop().toLowerCase(); }
+
+/* Smallest allowed box side, in original pixels (about 1% of the image, at least 4px) */
+function minSize() {
+  return Math.max(4, Math.round(Math.min(state.image.width, state.image.height) * 0.01));
+}
+
+function setStatus(msg, isError = false) {
+  els.status.textContent = msg;
+  els.status.classList.toggle("error", isError);
+}
+
+/* Convert a pointer event to original-image pixel coordinates.
+   This is what keeps boxes aligned at any display size. */
+function pointerToImage(e) {
+  const rect = els.overlay.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * state.image.width;
+  const y = ((e.clientY - rect.top) / rect.height) * state.image.height;
+  return {
+    x: clamp(x, 0, state.image.width),
+    y: clamp(y, 0, state.image.height)
+  };
+}
+
+/* =====================================================================
+   PURE FUNCTIONS (no screen access). The self-test checks these.
+   ===================================================================== */
+
+/* IoU = overlap area / combined area. 1 = same box, 0 = no overlap. */
+function iou(a, b) {
+  const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+  const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  const inter = ix * iy;
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+/* Match my boxes with reference boxes.
+   Step 1: pair boxes with the SAME label, best IoU first (IoU must be >= 0.5).
+   Step 2: among what is left, pair boxes with a DIFFERENT label (IoU >= 0.5) -> "wrong label".
+   Whatever is still unpaired is "extra" (mine) or "missed" (reference).
+   Returns index lists, so it works for any two arrays of {label,x,y,w,h}. */
+function compareBoxes(mine, ref) {
+  const usedMine = new Set();
+  const usedRef = new Set();
+  const pairs = [];
+  const wrong = [];
+
+  // List all possible pairs (same label or different label), best IoU first
+  function candidates(sameLabel) {
+    const list = [];
+    mine.forEach((m, mi) => ref.forEach((r, ri) => {
+      if (usedMine.has(mi) || usedRef.has(ri)) return;
+      if ((m.label === r.label) !== sameLabel) return;
+      const v = iou(m, r);
+      if (v >= IOU_MATCH) list.push({ mi, ri, iou: v });
+    }));
+    return list.sort((p, q) => q.iou - p.iou);
+  }
+
+  // Take pairs from the sorted list, skipping boxes that are already used
+  function assign(list, out) {
+    list.forEach((c) => {
+      if (usedMine.has(c.mi) || usedRef.has(c.ri)) return;
+      usedMine.add(c.mi);
+      usedRef.add(c.ri);
+      out.push(c);
+    });
+  }
+
+  assign(candidates(true), pairs);
+  assign(candidates(false), wrong);
+
+  const extra = [];
+  mine.forEach((_, mi) => { if (!usedMine.has(mi)) extra.push(mi); });
+  const missed = [];
+  ref.forEach((_, ri) => { if (!usedRef.has(ri)) missed.push(ri); });
+
+  return { pairs, wrong, extra, missed };
+}
+
+/* Turn a compareBoxes result into the numbers shown on screen */
+function summarize(result, refCount, mineCount) {
+  const ious = result.pairs.map((p) => p.iou);
+  const sum = ious.reduce((a, b) => a + b, 0);
+  return {
+    refCount,
+    mineCount,
+    meanMatched: ious.length ? sum / ious.length : null,   // average IoU of matched boxes only
+    meanAll: refCount ? sum / refCount : null,             // missed and wrong-label reference boxes count as 0
+    atMatch: ious.length,                                  // pairs with IoU >= 0.5
+    atGood: ious.filter((v) => v >= IOU_GOOD).length,      // pairs with IoU >= 0.75
+    wrong: result.wrong.length,
+    missed: result.missed.length,
+    extra: result.extra.length
+  };
+}
+
+/* Read a COCO file. Keep only the image that matches my file name and only my five labels.
+   Returns { ok:true, boxes, refWidth, refHeight, imageName, crowdSkipped, note }
+   or { ok:false, message }. */
+function parseCoco(data, fileName) {
+  if (!data || !Array.isArray(data.images) || !Array.isArray(data.annotations) || !Array.isArray(data.categories)) {
+    return { ok: false, message: "This does not look like a COCO file. It needs “images”, “annotations” and “categories”." };
+  }
+
+  // Find the image entry whose file name matches my uploaded image
+  const wanted = baseName(fileName);
+  let img = data.images.find((i) => baseName(i.file_name) === wanted);
+  let note = "";
+  if (!img) {
+    if (data.images.length === 1) {
+      img = data.images[0];
+      note = `The file has only one image, so I used it. Its name (“${img.file_name}”) is different from yours.`;
+    } else {
+      const sample = data.images.slice(0, 3).map((i) => i.file_name).join(", ");
+      return { ok: false, message: `No image in this file is named “${fileName}”. The file has ${data.images.length} images, for example: ${sample}.` };
+    }
+  }
+
+  // Map COCO category ids to my five labels (by name). Other categories are ignored.
+  const idToLabel = {};
+  data.categories.forEach((c) => {
+    const hit = LABELS.find((l) => l.toLowerCase() === String(c.name).toLowerCase());
+    if (hit) idToLabel[c.id] = hit;
+  });
+
+  const boxes = [];
+  let crowdSkipped = 0;
+  data.annotations.forEach((a) => {
+    if (a.image_id !== img.id) return;
+    const label = idToLabel[a.category_id];
+    if (!label) return;
+    if (a.iscrowd) { crowdSkipped++; return; }          // crowd regions are not single objects
+    const bb = a.bbox;
+    const valid = Array.isArray(bb) && bb.length === 4 && bb.every((v) => typeof v === "number" && isFinite(v));
+    if (!valid || bb[2] <= 0 || bb[3] <= 0) return;
+    boxes.push({ label, x: bb[0], y: bb[1], w: bb[2], h: bb[3] });
+  });
+
+  return {
+    ok: true, boxes, crowdSkipped, note,
+    refWidth: Number(img.width), refHeight: Number(img.height), imageName: img.file_name
+  };
+}
+
+/* Make a COCO file from my boxes. COCO bbox = [x, y, width, height] in pixels. */
+function buildCoco(image, boxes) {
+  return {
+    info: {
+      description: "Made with the Image Annotation Practice Tool. Practice output, not a certified accuracy result.",
+      date_created: new Date().toISOString()
+    },
+    images: [{ id: 1, file_name: image.name, width: image.width, height: image.height }],
+    categories: LABELS.map((l) => ({ id: COCO_IDS[l], name: l.toLowerCase(), supercategory: COCO_SUPER[l] })),
+    annotations: boxes.map((b) => ({
+      id: b.id,
+      image_id: 1,
+      category_id: COCO_IDS[b.label],
+      bbox: [round2(b.x), round2(b.y), round2(b.w), round2(b.h)],
+      area: round2(b.w * b.h),
+      iscrowd: 0
+    }))
+  };
+}
+
+/* Scale reference boxes when the reference image size differs from my image size */
+function scaleBoxes(boxes, sx, sy) {
+  return boxes.map((b) => ({ label: b.label, x: b.x * sx, y: b.y * sy, w: b.w * sx, h: b.h * sy }));
+}
+
+/* ---------- Setup: label dropdown and checklist ---------- */
+function buildLabelSelect() {
+  els.labelSelect.innerHTML = LABELS.map((l) => `<option value="${l}">${l}</option>`).join("");
+}
+
+function buildChecklist() {
+  els.checkList.innerHTML = "";
+  CHECKLIST_ITEMS.forEach((text, i) => {
+    const li = document.createElement("li");
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = state.checks[i];
+    input.addEventListener("change", () => {
+      state.checks[i] = input.checked;
+      renderChecklistSummary();
+      updateExport();
+    });
+    label.append(input, document.createTextNode(text));
+    li.appendChild(label);
+    els.checkList.appendChild(li);
+  });
+}
+
+/* ---------- Image upload ---------- */
+function loadFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    setStatus("That file is not an image. Please choose a JPG, PNG, WebP or similar file.", true);
+    return;
+  }
+  if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+  currentObjectUrl = URL.createObjectURL(file);
+
+  els.img.onload = () => {
+    state.image = { name: file.name, width: els.img.naturalWidth, height: els.img.naturalHeight };
+    state.boxes = [];
+    state.selectedId = null;
+    state.nextId = 1;
+
+    // A new image means the old reference, Pass 1 and review no longer fit
+    state.reference = null;
+    state.pass1 = null;
+    state.refMessage = { text: "No reference file loaded.", error: false };
+    state.review.active = false;
+    state.review.target = "reference";
+
+    els.emptyState.style.display = "none";
+    els.canvas.classList.add("show");
+    setStatus(`Loaded “${file.name}” (${state.image.width} × ${state.image.height} px). Previous boxes were cleared.`);
+    renderAll();
+  };
+  els.img.onerror = () => setStatus("This image could not be opened. Try another file.", true);
+  els.img.src = currentObjectUrl;
+}
+
+/* =====================================================================
+   REVIEW MODE
+   ===================================================================== */
+
+/* Which boxes am I comparing with, and what words to show on screen */
+function targetInfo() {
+  const t = state.review.target;
+  if (t === "reference" && state.reference) {
+    return { boxes: state.reference.boxes, refName: "reference", missedName: "Missed", extraName: "Extra", sideName: "reference" };
+  }
+  if (t === "pass1" && state.pass1) {
+    return { boxes: state.pass1.boxes, refName: "Pass 1", missedName: "Only in Pass 1", extraName: "Only in this pass", sideName: "Pass 1" };
+  }
+  return null;
+}
+
+/* Run the comparison and save the result in state.review */
+function computeReview() {
+  const rv = state.review;
+  rv.result = null;
+  rv.byBox = {};
+  if (!rv.active) return;
+
+  const info = targetInfo();
+  if (!info) { rv.active = false; return; }
+
+  const mine = state.boxes;
+  const res = compareBoxes(mine, info.boxes);
+
+  res.pairs.forEach((p) => {
+    rv.byBox[mine[p.mi].id] = { status: p.iou >= IOU_GOOD ? "good" : "ok", iou: p.iou };
+  });
+  res.wrong.forEach((p) => {
+    rv.byBox[mine[p.mi].id] = { status: "wrong", iou: p.iou, refName: info.refName, refLabel: info.boxes[p.ri].label };
+  });
+  res.extra.forEach((mi) => {
+    rv.byBox[mine[mi].id] = { status: "extra", extraName: info.extraName };
+  });
+
+  rv.result = {
+    refBoxes: info.boxes,
+    missedSet: new Set(res.missed),
+    summary: summarize(res, info.boxes.length, mine.length),
+    info
+  };
+}
+
+/* Short text for a box result (used in the tag and the list) */
+function statusText(info) {
+  if (info.status === "good") return `good match, IoU ${info.iou.toFixed(2)}`;
+  if (info.status === "ok") return `fair match, IoU ${info.iou.toFixed(2)}`;
+  if (info.status === "wrong") return `wrong label (${info.refName}: ${info.refLabel})`;
+  return info.extraName.toLowerCase();
+}
+
+/* ---------- Rendering ---------- */
+function renderAll() {
+  computeReview();
+  renderBoxes();
+  renderList();
+  renderHints();
+  renderReview();
+  updateExport();
+}
+
+/* Set a box position and size in % of the original image size */
+function applyGeometry(el, b) {
+  const { width: W, height: H } = state.image;
+  el.style.left = (b.x / W) * 100 + "%";
+  el.style.top = (b.y / H) * 100 + "%";
+  el.style.width = (b.w / W) * 100 + "%";
+  el.style.height = (b.h / H) * 100 + "%";
+  if (b.y / H < 0.06) el.classList.add("top-edge"); // keep the tag visible near the top edge
+}
+
+/* Draw reference boxes (when review is on) and then all of my boxes */
+function renderBoxes() {
+  els.overlay.innerHTML = "";
+  if (!state.image) return;
+  const rv = state.review;
+
+  if (rv.active && rv.result) {
+    rv.result.refBoxes.forEach((r, ri) => {
+      const missed = rv.result.missedSet.has(ri);
+      if (!missed && !rv.showMatched) return; // missed boxes always show
+      els.overlay.appendChild(createRefElement(r, missed, rv.result.info.missedName));
+    });
+  }
+  state.boxes.forEach((b) => {
+    els.overlay.appendChild(createBoxElement(b, false, rv.active ? rv.byBox[b.id] : null));
+  });
+}
+
+function createRefElement(r, missed, missedName) {
+  const el = document.createElement("div");
+  el.className = "ref-box" + (missed ? " missed" : "");
+  applyGeometry(el, r);
+  if (missed) {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = `${missedName} · ${r.label}`;
+    el.appendChild(tag);
+  }
+  return el;
+}
+
+function createBoxElement(b, isDraft = false, info = null) {
+  const el = document.createElement("div");
+  el.className = "box" + (b.id === state.selectedId ? " selected" : "") + (isDraft ? " draft" : "");
+  el.dataset.id = b.id;
+  el.style.setProperty("--c", labelColor(b.label));
+  if (info) el.dataset.s = info.status; // review color
+  applyGeometry(el, b);
+
+  const tag = document.createElement("span");
+  tag.className = "tag";
+  if (isDraft) tag.textContent = b.label;
+  else tag.textContent = `${b.id} · ${b.label}` + (info ? ` · ${statusText(info)}` : "");
+  el.appendChild(tag);
+
+  // Resize handles only on the selected box
+  if (b.id === state.selectedId && !isDraft) {
+    ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach((h) => {
+      const hd = document.createElement("span");
+      hd.className = "handle";
+      hd.dataset.h = h;
+      el.appendChild(hd);
+    });
+  }
+  return el;
+}
+
+/* Annotation list on the right */
+function renderList() {
+  els.annList.innerHTML = "";
+  els.count.textContent = state.boxes.length;
+  els.listEmpty.style.display = state.boxes.length ? "none" : "block";
+  els.clearBtn.disabled = state.boxes.length === 0;
+
+  state.boxes.forEach((b) => {
+    const li = document.createElement("li");
+    li.className = "ann-item" + (b.id === state.selectedId ? " selected" : "");
+    li.style.setProperty("--c", labelColor(b.label));
+    li.addEventListener("click", () => selectBox(b.id));
+
+    const num = document.createElement("span");
+    num.className = "num";
+    num.textContent = "#" + b.id;
+
+    // Label editor
+    const sel = document.createElement("select");
+    sel.setAttribute("aria-label", `Label for box ${b.id}`);
+    sel.innerHTML = LABELS.map((l) => `<option ${l === b.label ? "selected" : ""}>${l}</option>`).join("");
+    sel.addEventListener("click", (e) => e.stopPropagation());
+    sel.addEventListener("change", () => {
+      b.label = sel.value;
+      state.selectedId = b.id;
+      renderAll();
+    });
+
+    // Delete button
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "Delete";
+    del.setAttribute("aria-label", `Delete box ${b.id}`);
+    del.addEventListener("click", (e) => { e.stopPropagation(); deleteBox(b.id); });
+
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    const info = state.review.active ? state.review.byBox[b.id] : null;
+    meta.textContent = `x ${Math.round(b.x)}, y ${Math.round(b.y)} · ${Math.round(b.w)} × ${Math.round(b.h)} px`
+      + (info ? ` · ${statusText(info)}` : "");
+
+    li.append(num, sel, del, meta);
+    els.annList.appendChild(li);
+  });
+}
+
+function renderChecklistSummary() {
+  const done = state.checks.filter(Boolean).length;
+  const total = state.checks.length;
+  els.progressBar.style.width = (done / total) * 100 + "%";
+  els.checkSummary.textContent = `${done} of ${total} checked`;
+}
+
+/* Simple automatic hints (these are prompts to look again, not a score) */
+function renderHints() {
+  renderChecklistSummary();
+  const notes = [];
+
+  if (state.image) {
+    if (state.boxes.length === 0) notes.push("No boxes drawn yet.");
+
+    const imgArea = state.image.width * state.image.height;
+    state.boxes.forEach((b) => {
+      if ((b.w * b.h) / imgArea < 0.002) notes.push(`Box #${b.id} is very small. Check that it is not an accident.`);
+    });
+
+    // Compare every pair: same label and large overlap may be a duplicate
+    for (let i = 0; i < state.boxes.length; i++) {
+      for (let j = i + 1; j < state.boxes.length; j++) {
+        const a = state.boxes[i], c = state.boxes[j];
+        if (a.label === c.label && iou(a, c) > 0.7) {
+          notes.push(`Boxes #${a.id} and #${c.id} overlap a lot and share the label “${a.label}”. They may be duplicates.`);
+        }
+      }
+    }
+  } else {
+    notes.push("Upload an image to start.");
+  }
+
+  if (notes.length === 0) {
+    els.hints.className = "hints ok";
+    els.hints.textContent = "No automatic hints. Still go through the checklist by eye.";
+  } else {
+    els.hints.className = "hints";
+    els.hints.innerHTML = "<strong>Hints</strong><ul>" + notes.map((n) => `<li>${n}</li>`).join("") + "</ul>";
+  }
+}
+
+/* Review panel: messages, buttons, results */
+function renderReview() {
+  const rv = state.review;
+  const hasImage = !!state.image;
+
+  els.refBtn.disabled = !hasImage;
+  els.pass1Btn.disabled = !hasImage || state.boxes.length === 0;
+
+  els.refMsg.textContent = state.refMessage.text;
+  els.refMsg.classList.toggle("error", state.refMessage.error);
+  els.pass1Msg.textContent = state.pass1
+    ? `Pass 1 saved: ${state.pass1.boxes.length} box${state.pass1.boxes.length === 1 ? "" : "es"}. Annotate the image again from scratch, then choose “My Pass 1” and start the review.`
+    : "Draw your boxes, then save them as Pass 1. Your boxes are cleared so you can annotate again without looking.";
+
+  // Only offer a target that exists
+  els.targetSelect.options[0].disabled = !state.reference;
+  els.targetSelect.options[1].disabled = !state.pass1;
+  els.targetSelect.value = rv.target;
+
+  els.reviewBtn.textContent = rv.active ? "Stop review" : "Start review";
+  els.reviewBtn.disabled = !rv.active && !(state.reference || state.pass1);
+  els.showRef.checked = rv.showMatched;
+
+  // Results
+  if (!rv.active || !rv.result) { els.reviewResults.innerHTML = ""; return; }
+  const s = rv.result.summary;
+  const info = rv.result.info;
+  const f = (v) => (v === null ? "–" : v.toFixed(3));
+
+  let html = `<dl class="stats">
+    <dt>Boxes compared</dt><dd>${s.refCount} ${info.sideName} · ${s.mineCount} mine</dd>
+    <dt>Mean IoU, matched boxes</dt><dd>${f(s.meanMatched)}</dd>
+    <dt>Mean IoU, all ${info.sideName} boxes (not matched = 0)</dt><dd>${f(s.meanAll)}</dd>
+    <dt>Matched at IoU ≥ 0.5</dt><dd>${s.atMatch} of ${s.refCount}</dd>
+    <dt>Matched at IoU ≥ 0.75</dt><dd>${s.atGood} of ${s.refCount}</dd>
+    <dt>Wrong label</dt><dd>${s.wrong}</dd>
+    <dt>${info.missedName}</dt><dd>${s.missed}</dd>
+    <dt>${info.extraName}</dt><dd>${s.extra}</dd>
+  </dl>`;
+  if (s.refCount === 0) {
+    html += `<p class="rv-msg" style="margin-top:8px">The ${info.sideName} has no boxes for these five labels in this image.</p>`;
+  }
+  html += `<p class="rv-msg" style="margin-top:8px">IoU shows how much two boxes overlap. 1.0 is a perfect match, 0 is no overlap.</p>
+    <ul class="legend">
+      <li><i style="--k:var(--s-good)"></i>My box, IoU 0.75 or more</li>
+      <li><i style="--k:var(--s-ok)"></i>My box, IoU 0.5 to 0.75</li>
+      <li><i style="--k:var(--s-wrong)"></i>My box, wrong label</li>
+      <li><i style="--k:var(--s-extra)"></i>${info.extraName.charAt(0).toUpperCase() + info.extraName.slice(1).toLowerCase()} (my box has no partner)</li>
+      <li><i class="dash" style="--k:var(--s-missed)"></i>${info.missedName} (${info.sideName} box has no partner)</li>
+      <li><i class="dash" style="--k:var(--ref-line)"></i>Matched ${info.sideName} box</li>
+    </ul>`;
+  els.reviewResults.innerHTML = html;
+}
+
+/* ---------- Box actions ---------- */
+function selectBox(id) {
+  state.selectedId = id;
+  renderBoxes();
+  renderList();
+}
+
+function deleteBox(id) {
+  state.boxes = state.boxes.filter((b) => b.id !== id);
+  if (state.selectedId === id) state.selectedId = null;
+  renderAll();
+}
+
+/* Two-click confirm for "Clear all" (no pop-up dialogs) */
+let clearTimer = null;
+els.clearBtn.addEventListener("click", () => {
+  if (els.clearBtn.dataset.confirm === "1") {
+    state.boxes = [];
+    state.selectedId = null;
+    resetClearButton();
+    renderAll();
+    return;
+  }
+  els.clearBtn.dataset.confirm = "1";
+  els.clearBtn.textContent = "Click again to confirm";
+  clearTimer = setTimeout(resetClearButton, 3000);
+});
+function resetClearButton() {
+  clearTimeout(clearTimer);
+  els.clearBtn.dataset.confirm = "";
+  els.clearBtn.textContent = "Clear all";
+}
+
+/* ---------- Review controls ---------- */
+
+// Load a COCO reference file
+els.refBtn.addEventListener("click", () => els.refInput.click());
+els.refInput.addEventListener("change", async () => {
+  const file = els.refInput.files[0];
+  els.refInput.value = "";
+  if (file) await loadReferenceFile(file);
+});
+
+async function loadReferenceFile(file) {
+  if (!state.image) {
+    state.refMessage = { text: "Upload your image first, so the tool can find it in the file.", error: true };
+    renderReview();
+    return;
+  }
+  state.refMessage = { text: "Reading file… large files can take a few seconds.", error: false };
+  renderReview();
+
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch (err) {
+    state.refMessage = { text: "This file is not valid JSON.", error: true };
+    renderReview();
+    return;
+  }
+
+  const out = parseCoco(data, state.image.name);
+  data = null; // let the browser free the big file
+  if (!out.ok) {
+    state.refMessage = { text: out.message, error: true };
+    renderReview();
+    return;
+  }
+
+  // If the reference image size differs from mine, scale the reference boxes
+  let boxes = out.boxes;
+  const notes = [];
+  if (out.note) notes.push(out.note);
+  const W = state.image.width, H = state.image.height;
+  if (out.refWidth > 0 && out.refHeight > 0 && (out.refWidth !== W || out.refHeight !== H)) {
+    boxes = scaleBoxes(boxes, W / out.refWidth, H / out.refHeight);
+    const shapeDiffers = Math.abs((W / H) / (out.refWidth / out.refHeight) - 1) > 0.01;
+    notes.push(shapeDiffers
+      ? `Warning: your image shape (${W} × ${H}) differs from the file (${out.refWidth} × ${out.refHeight}). It may be a different or cropped image, so scores may be wrong.`
+      : `Your image size (${W} × ${H}) differs from the file (${out.refWidth} × ${out.refHeight}), so the reference boxes were scaled.`);
+  }
+  if (out.crowdSkipped) notes.push(`${out.crowdSkipped} crowd box${out.crowdSkipped === 1 ? "" : "es"} skipped.`);
+
+  const counts = LABELS.map((l) => [l, boxes.filter((b) => b.label === l).length])
+    .filter(([, n]) => n > 0).map(([l, n]) => `${l} ${n}`).join(", ");
+  const summary = boxes.length
+    ? `${boxes.length} box${boxes.length === 1 ? "" : "es"} (${counts})`
+    : "no boxes for the five labels";
+
+  state.reference = { boxes };
+  state.review.target = "reference";
+  state.refMessage = { text: `Reference loaded for “${out.imageName}”: ${summary}. ${notes.join(" ")}`.trim(), error: false };
+  renderAll();
+}
+
+// Save the current boxes as Pass 1 and clear them for a fresh second pass
+els.pass1Btn.addEventListener("click", () => {
+  const n = state.boxes.length;
+  state.pass1 = { boxes: state.boxes.map((b) => ({ label: b.label, x: b.x, y: b.y, w: b.w, h: b.h })) };
+  state.boxes = [];
+  state.selectedId = null;
+  state.nextId = 1;
+  state.review.active = false;
+  state.review.target = "pass1";
+  setStatus(`Pass 1 saved (${n} box${n === 1 ? "" : "es"}). Your boxes are cleared. Annotate the image again from scratch.`);
+  renderAll();
+});
+
+els.targetSelect.addEventListener("change", () => {
+  state.review.target = els.targetSelect.value;
+  renderAll();
+});
+
+els.showRef.addEventListener("change", () => {
+  state.review.showMatched = els.showRef.checked;
+  renderBoxes();
+});
+
+els.reviewBtn.addEventListener("click", () => {
+  const rv = state.review;
+  if (rv.active) {
+    rv.active = false;
+  } else {
+    // Pick a target that exists
+    if (!targetInfo()) rv.target = state.reference ? "reference" : "pass1";
+    if (!targetInfo()) { setStatus("Load a reference file or save a Pass 1 first.", true); return; }
+    rv.active = true;
+    state.selectedId = null;
+  }
+  renderAll();
+});
+
+/* ---------- Mouse / touch interaction on the overlay ---------- */
+els.overlay.addEventListener("pointerdown", (e) => {
+  if (!state.image || e.button > 0) return;
+  e.preventDefault();
+  els.overlay.focus({ preventScroll: true });
+  els.overlay.setPointerCapture(e.pointerId);
+
+  const p = pointerToImage(e);
+  const handleEl = e.target.closest(".handle");
+  const boxEl = e.target.closest(".box");
+
+  if (handleEl && boxEl) {
+    // Start resizing the selected box
+    const b = getBox(Number(boxEl.dataset.id));
+    drag = { type: "resize", id: b.id, handle: handleEl.dataset.h, orig: { ...b } };
+  } else if (boxEl) {
+    // Select the box and start moving it
+    const b = getBox(Number(boxEl.dataset.id));
+    state.selectedId = b.id;
+    drag = { type: "move", id: b.id, start: p, orig: { ...b }, moved: false };
+    renderBoxes();
+    renderList();
+  } else {
+    // Start drawing a new box
+    state.selectedId = null;
+    drag = { type: "draw", start: p, current: p };
+    renderBoxes();
+    renderList();
+  }
+});
+
+els.overlay.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const p = pointerToImage(e);
+  const { width: W, height: H } = state.image;
+  const min = minSize();
+
+  if (drag.type === "draw") {
+    drag.current = p;
+    renderBoxes();
+    els.overlay.appendChild(createBoxElement(draftFromDrag(), true));
+
+  } else if (drag.type === "move") {
+    const b = getBox(drag.id);
+    // Keep the whole box inside the image
+    b.x = clamp(drag.orig.x + (p.x - drag.start.x), 0, W - b.w);
+    b.y = clamp(drag.orig.y + (p.y - drag.start.y), 0, H - b.h);
+    drag.moved = true;
+    computeReview();
+    renderBoxes();
+
+  } else if (drag.type === "resize") {
+    const b = getBox(drag.id);
+    const o = drag.orig;
+    let left = o.x, right = o.x + o.w, top = o.y, bottom = o.y + o.h;
+
+    // Move only the edges that this handle controls
+    if (drag.handle.includes("w")) left = Math.min(p.x, right - min);
+    if (drag.handle.includes("e")) right = Math.max(p.x, left + min);
+    if (drag.handle.includes("n")) top = Math.min(p.y, bottom - min);
+    if (drag.handle.includes("s")) bottom = Math.max(p.y, top + min);
+
+    b.x = left; b.y = top; b.w = right - left; b.h = bottom - top;
+    computeReview();
+    renderBoxes();
+  }
+});
+
+function endDrag(e) {
+  if (!drag) return;
+  if (els.overlay.hasPointerCapture(e.pointerId)) els.overlay.releasePointerCapture(e.pointerId);
+
+  if (drag.type === "draw") {
+    const d = draftFromDrag();
+    // Ignore accidental tiny drags (simple clicks)
+    if (d.w >= minSize() && d.h >= minSize()) {
+      const box = { id: state.nextId++, label: els.labelSelect.value, x: d.x, y: d.y, w: d.w, h: d.h };
+      state.boxes.push(box);
+      state.selectedId = box.id;
+    }
+  }
+  drag = null;
+  renderAll();
+}
+els.overlay.addEventListener("pointerup", endDrag);
+els.overlay.addEventListener("pointercancel", endDrag);
+
+/* Build a normalized rectangle (positive width and height) from the current draw drag */
+function draftFromDrag() {
+  const a = drag.start, c = drag.current;
+  return {
+    id: 0,
+    label: els.labelSelect.value,
+    x: Math.min(a.x, c.x), y: Math.min(a.y, c.y),
+    w: Math.abs(c.x - a.x), h: Math.abs(c.y - a.y)
+  };
+}
+
+/* Delete key removes the selected box (unless the user is typing in a field) */
+document.addEventListener("keydown", (e) => {
+  const tag = (document.activeElement && document.activeElement.tagName) || "";
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(tag)) return;
+  if ((e.key === "Delete" || e.key === "Backspace") && state.selectedId !== null) {
+    e.preventDefault();
+    deleteBox(state.selectedId);
+  }
+  if (e.key === "Escape") { state.selectedId = null; renderBoxes(); renderList(); }
+});
+
+/* ---------- Upload controls and drag-and-drop ---------- */
+els.uploadBtn.addEventListener("click", () => els.fileInput.click());
+els.fileInput.addEventListener("change", () => {
+  loadFile(els.fileInput.files[0]);
+  els.fileInput.value = ""; // allows choosing the same file again
+});
+["dragenter", "dragover"].forEach((ev) =>
+  els.stage.addEventListener(ev, (e) => { e.preventDefault(); els.stage.classList.add("dragover"); })
+);
+["dragleave", "drop"].forEach((ev) =>
+  els.stage.addEventListener(ev, (e) => { e.preventDefault(); els.stage.classList.remove("dragover"); })
+);
+els.stage.addEventListener("drop", (e) => loadFile(e.dataTransfer.files[0]));
+
+/* ---------- Export (Practice JSON or COCO JSON) ---------- */
+function buildExport() {
+  return {
+    tool: "Image Annotation Practice Tool",
+    note: "Educational practice output. Not a certified accuracy evaluation.",
+    exportedAt: new Date().toISOString(),
+    image: state.image
+      ? { fileName: state.image.name, width: state.image.width, height: state.image.height }
+      : null,
+    bboxFormat: "x, y, width, height in original image pixels. Origin is the top-left corner.",
+    annotations: state.boxes.map((b) => ({
+      id: b.id,
+      label: b.label,
+      bbox: { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.w), height: Math.round(b.h) }
+    })),
+    checklist: CHECKLIST_ITEMS.map((text, i) => ({ item: text, checked: state.checks[i] }))
+  };
+}
+
+/* The object for the chosen format */
+function currentExport() {
+  return els.exportFormat.value === "coco" ? buildCoco(state.image, state.boxes) : buildExport();
+}
+
+function updateExport() {
+  const hasData = !!state.image;
+  els.downloadBtn.disabled = !hasData;
+  els.copyBtn.disabled = !hasData;
+  els.jsonPreview.textContent = hasData ? JSON.stringify(currentExport(), null, 2) : "{}";
+  els.exportStatus.textContent = "";
+}
+els.exportFormat.addEventListener("change", updateExport);
+
+els.downloadBtn.addEventListener("click", () => {
+  try {
+    const json = JSON.stringify(currentExport(), null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const suffix = els.exportFormat.value === "coco" ? "-coco.json" : "-annotations.json";
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = state.image.name.replace(/\.[^.]+$/, "") + suffix;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    els.exportStatus.textContent = "Download started. If nothing happens, use Copy instead.";
+  } catch (err) {
+    els.exportStatus.textContent = "Download is blocked here. Use Copy instead.";
+  }
+});
+
+els.copyBtn.addEventListener("click", async () => {
+  const json = JSON.stringify(currentExport(), null, 2);
+  try {
+    await navigator.clipboard.writeText(json);
+    els.exportStatus.textContent = "Copied.";
+  } catch (err) {
+    // Fallback for browsers that block the clipboard API
+    const ta = document.createElement("textarea");
+    ta.value = json;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e2) { ok = false; }
+    ta.remove();
+    els.exportStatus.textContent = ok ? "Copied." : "Copy is blocked. Open “Preview” and copy the text by hand.";
+  }
+});
+
+/* =====================================================================
+   SELF-TEST: runs on page load. Each test has an answer you can work out by hand.
+   ===================================================================== */
+function runSelfTests() {
+  const approx = (a, b) => Math.abs(a - b) < 0.0005;
+  const box = (x, y, w, h, label = "Dog") => ({ label, x, y, w, h });
+
+  // A tiny COCO file with two images, one unrelated category and one crowd box
+  const sampleCoco = {
+    images: [
+      { id: 1, file_name: "a.jpg", width: 100, height: 100 },
+      { id: 2, file_name: "b.jpg", width: 100, height: 100 }
+    ],
+    categories: [{ id: 1, name: "person" }, { id: 7, name: "umbrella" }],
+    annotations: [
+      { image_id: 2, category_id: 1, bbox: [1, 2, 3, 4], iscrowd: 0 },
+      { image_id: 1, category_id: 1, bbox: [10, 20, 30, 40], iscrowd: 0 },
+      { image_id: 1, category_id: 7, bbox: [0, 0, 5, 5], iscrowd: 0 },
+      { image_id: 1, category_id: 1, bbox: [50, 50, 20, 20], iscrowd: 1 }
+    ]
+  };
+
+  const tests = [
+    ["IoU of two identical boxes is 1.000",
+      () => approx(iou(box(0, 0, 100, 100), box(0, 0, 100, 100)), 1)],
+
+    ["IoU of two boxes that do not touch is 0.000",
+      () => approx(iou(box(0, 0, 100, 100), box(300, 300, 100, 100)), 0)],
+
+    ["IoU of two 100 × 100 boxes shifted by 50 px is 0.333",
+      () => approx(iou(box(0, 0, 100, 100), box(50, 0, 100, 100)), 0.333)],
+
+    ["Same boxes with same labels: all matched, none missed, none extra",
+      () => {
+        const a = [box(0, 0, 50, 50), box(100, 100, 50, 50, "Cat")];
+        const r = compareBoxes(a, a);
+        const s = summarize(r, 2, 2);
+        return r.pairs.length === 2 && r.missed.length === 0 && r.extra.length === 0 && approx(s.meanMatched, 1);
+      }],
+
+    ["Same box with a different label counts as a wrong label",
+      () => {
+        const r = compareBoxes([box(0, 0, 50, 50, "Dog")], [box(0, 0, 50, 50, "Cat")]);
+        return r.pairs.length === 0 && r.wrong.length === 1 && r.extra.length === 0 && r.missed.length === 0;
+      }],
+
+    ["A box with no partner is extra; a reference box with no partner is missed",
+      () => {
+        const r = compareBoxes([box(0, 0, 50, 50), box(200, 200, 50, 50)], [box(0, 0, 50, 50), box(400, 400, 50, 50)]);
+        return r.pairs.length === 1 && r.extra.length === 1 && r.missed.length === 1;
+      }],
+
+    ["COCO export writes [x, y, width, height], category id 18 for Dog, and area 1200",
+      () => {
+        const c = buildCoco({ name: "a.jpg", width: 640, height: 480 }, [{ id: 1, label: "Dog", x: 10, y: 20, w: 30, h: 40 }]);
+        const a = c.annotations[0];
+        return JSON.stringify(a.bbox) === "[10,20,30,40]" && a.category_id === 18 && a.area === 1200 && c.images[0].width === 640;
+      }],
+
+    ["COCO reader picks the right image, keeps only my labels, and skips crowd boxes",
+      () => {
+        const out = parseCoco(sampleCoco, "A.JPG");
+        return out.ok && out.boxes.length === 1 && out.boxes[0].label === "Person" && out.boxes[0].x === 10 && out.crowdSkipped === 1;
+      }]
+  ];
+
+  // Run each test and show PASS or FAIL
+  els.selfTestList.innerHTML = "";
+  let passed = 0;
+  tests.forEach(([name, fn]) => {
+    let ok = false;
+    try { ok = !!fn(); } catch (err) { ok = false; }
+    if (ok) passed++;
+    const li = document.createElement("li");
+    if (!ok) li.className = "fail";
+    const tagEl = document.createElement("span");
+    tagEl.className = "result";
+    tagEl.textContent = ok ? "PASS" : "FAIL";
+    li.append(tagEl, document.createTextNode(name));
+    els.selfTestList.appendChild(li);
+  });
+
+  els.selfTestSummary.textContent = `Self-test: ${passed} of ${tests.length} passed`;
+  if (passed !== tests.length) els.selfTestBox.open = true; // show problems right away
+}
+
+/* ---------- Start ---------- */
+buildLabelSelect();
+buildChecklist();
+renderAll();
+runSelfTests();
+</script>
+</body>
+</html>
