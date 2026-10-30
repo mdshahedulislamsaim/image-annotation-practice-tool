@@ -2,7 +2,7 @@
 
 A simple browser tool to practice image annotation. No backend, no API key.
 
-**Live demo:** https://github.com/mdshahedulislamsaim/image-annotation-practice-tool/
+**Live demo:** https://mdshahedulislamsaim.github.io/image-annotation-practice-tool/
 
 ## What it does
 - Upload an image and draw bounding boxes
